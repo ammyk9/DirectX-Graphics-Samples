@@ -19,6 +19,8 @@ namespace GameInput
     void Shutdown();
     void Update( float frameDelta );
 
+    void ProcessMessage( UINT message, WPARAM wParam, LPARAM lParam );
+
     enum DigitalInput
     {
         // keyboard
@@ -147,14 +149,11 @@ namespace GameInput
         kYButton,
 
         // mouse
-        kMouse0,
-        kMouse1,
-        kMouse2,
-        kMouse3,
-        kMouse4,
-        kMouse5,
-        kMouse6,
-        kMouse7,
+        kMouseLeft,
+        kMouseMiddle,
+        kMouseRight,
+        kMouseButton1,
+        kMouseButton2,
 
         kNumDigitalInputs
     };

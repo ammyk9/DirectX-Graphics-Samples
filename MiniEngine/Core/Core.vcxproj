@@ -80,6 +80,10 @@
     <ClInclude Include="DDSTextureLoader.h" />
     <ClInclude Include="DepthBuffer.h" />
     <ClInclude Include="DepthOfField.h" />
+    <ClInclude Include="DirectXTK\GamePad.h" />
+    <ClInclude Include="DirectXTK\Keyboard.h" />
+    <ClInclude Include="DirectXTK\Mouse.h" />
+    <ClInclude Include="DirectXTK\PlatformHelpers.h" />
     <ClInclude Include="DynamicDescriptorHeap.h" />
     <ClInclude Include="DescriptorHeap.h" />
     <ClInclude Include="GpuBuffer.h" />
@@ -87,7 +91,7 @@
     <ClInclude Include="EsramAllocator.h" />
     <ClInclude Include="FileUtility.h" />
     <ClInclude Include="FXAA.h" />
-    <ClInclude Include="GameInput.h" />
+    <ClInclude Include="Input.h" />
     <ClInclude Include="GpuResource.h" />
     <ClInclude Include="GpuTimeManager.h" />
     <ClInclude Include="GameCore.h" />
@@ -151,6 +155,9 @@
     <ClCompile Include="DDSTextureLoader.cpp" />
     <ClCompile Include="DepthBuffer.cpp" />
     <ClCompile Include="DepthOfField.cpp" />
+    <ClCompile Include="DirectXTK\GamePad.cpp" />
+    <ClCompile Include="DirectXTK\Keyboard.cpp" />
+    <ClCompile Include="DirectXTK\Mouse.cpp" />
     <ClCompile Include="DynamicDescriptorHeap.cpp" />
     <ClCompile Include="DescriptorHeap.cpp" />
     <ClCompile Include="EngineProfiling.cpp" />

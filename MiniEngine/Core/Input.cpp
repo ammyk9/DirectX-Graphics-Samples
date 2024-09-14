@@ -13,240 +13,213 @@
 
 #include "pch.h"
 #include "GameCore.h"
-#include "GameInput.h"
-
-#ifdef _GAMING_DESKTOP
-
-// I can't find the GameInput.h header in the GDK for Desktop yet
-#include <Xinput.h>
-#pragma comment(lib, "xinput9_1_0.lib")
+#include "Input.h"
+#include "DirectXTK/GamePad.h"
 
 #define USE_KEYBOARD_MOUSE
-#define DIRECTINPUT_VERSION 0x0800
-#include <dinput.h>
-#pragma comment(lib, "dinput8.lib")
-#pragma comment(lib, "dxguid.lib")
+#include "DirectXTK/Keyboard.h"
+#include "DirectXTK/Mouse.h"
 
-#else
+namespace GameInput
+{
+    std::unique_ptr<DirectX::GamePad> g_GamePad;
+    std::unique_ptr<DirectX::Keyboard> g_Keyboard;
+    std::unique_ptr<DirectX::Mouse> g_Mouse;
+}
 
-// This is what we should use on *all* platforms, but see previous comment
-#include <GameInput.h>
-
-// This should be handled by GameInput.h, but we'll borrow values from XINPUT.
-#define XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE  (7849.0f / 32768.0f)
-#define XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE (8689.0f / 32768.0f)
-
-#endif
+using DirectX::GamePad;
+using DirectX::Keyboard;
+using DirectX::Mouse;
 
 namespace GameCore
 {
     extern HWND g_hWnd;
 }
 
-namespace
+namespace GameInput
 {
+    void ProcessMessage(UINT message, WPARAM wParam, LPARAM lParam)
+    {
+#ifdef USE_KEYBOARD_MOUSE
+        switch( message )
+        {
+        case WM_ACTIVATEAPP:
+            Keyboard::ProcessMessage(message, wParam, lParam);
+            Mouse::ProcessMessage(message, wParam, lParam);
+            break;
+
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN:
+        case WM_KEYUP:
+        case WM_SYSKEYUP:
+            Keyboard::ProcessMessage(message, wParam, lParam);
+            break;
+
+        case WM_INPUT:
+        case WM_MOUSEMOVE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONUP:
+        case WM_MOUSEWHEEL:
+        case WM_XBUTTONDOWN:
+        case WM_XBUTTONUP:
+            Mouse::ProcessMessage(message, wParam, lParam);
+            break;
+
+        default:
+            break;
+        }
+#endif
+    }
+
     bool s_Buttons[2][GameInput::kNumDigitalInputs];
     float s_HoldDuration[GameInput::kNumDigitalInputs] = { 0.0f };
     float s_Analogs[GameInput::kNumAnalogInputs];
     float s_AnalogsTC[GameInput::kNumAnalogInputs];
 
 #ifdef USE_KEYBOARD_MOUSE
-
-    IDirectInput8A* s_DI;
-    IDirectInputDevice8A* s_Keyboard;
-    IDirectInputDevice8A* s_Mouse;
-
-    DIMOUSESTATE2 s_MouseState;
-    unsigned char s_Keybuffer[256];
     unsigned char s_DXKeyMapping[GameInput::kNumKeys]; // map DigitalInput enum to DX key codes 
 
-#endif
-
-    inline float FilterAnalogInput( int val, int deadZone )
-    {
-        if (val < 0)
-        {
-            if (val > -deadZone)
-                return 0.0f;
-            else
-                return (val + deadZone) / (32768.0f - deadZone);
-        }
-        else
-        {
-            if (val < deadZone)
-                return 0.0f;
-            else
-                return (val - deadZone) / (32767.0f - deadZone);
-        }
-    }
-
-#ifdef USE_KEYBOARD_MOUSE
     void KbmBuildKeyMapping()
     {
-        s_DXKeyMapping[GameInput::kKey_escape] = 1;
-        s_DXKeyMapping[GameInput::kKey_1] = 2;
-        s_DXKeyMapping[GameInput::kKey_2] = 3;
-        s_DXKeyMapping[GameInput::kKey_3] = 4;
-        s_DXKeyMapping[GameInput::kKey_4] = 5;
-        s_DXKeyMapping[GameInput::kKey_5] = 6;
-        s_DXKeyMapping[GameInput::kKey_6] = 7;
-        s_DXKeyMapping[GameInput::kKey_7] = 8;
-        s_DXKeyMapping[GameInput::kKey_8] = 9;
-        s_DXKeyMapping[GameInput::kKey_9] = 10;
-        s_DXKeyMapping[GameInput::kKey_0] = 11;
-        s_DXKeyMapping[GameInput::kKey_minus] = 12;
+        s_DXKeyMapping[GameInput::kKey_escape] = Keyboard::Keys::Escape;
+        s_DXKeyMapping[GameInput::kKey_1] = Keyboard::Keys::D1;
+        s_DXKeyMapping[GameInput::kKey_2] = Keyboard::Keys::D2;
+        s_DXKeyMapping[GameInput::kKey_3] = Keyboard::Keys::D3;
+        s_DXKeyMapping[GameInput::kKey_4] = Keyboard::Keys::D4;
+        s_DXKeyMapping[GameInput::kKey_5] = Keyboard::Keys::D5;
+        s_DXKeyMapping[GameInput::kKey_6] = Keyboard::Keys::D6;
+        s_DXKeyMapping[GameInput::kKey_7] = Keyboard::Keys::D7;
+        s_DXKeyMapping[GameInput::kKey_8] = Keyboard::Keys::D8;
+        s_DXKeyMapping[GameInput::kKey_9] = Keyboard::Keys::D9;
+        s_DXKeyMapping[GameInput::kKey_0] = Keyboard::Keys::D0;
+        s_DXKeyMapping[GameInput::kKey_minus] = Keyboard::Keys::OemMinus;
         s_DXKeyMapping[GameInput::kKey_equals] = 13;
-        s_DXKeyMapping[GameInput::kKey_back] = 14;
-        s_DXKeyMapping[GameInput::kKey_tab] = 15;
-        s_DXKeyMapping[GameInput::kKey_q] = 16;
-        s_DXKeyMapping[GameInput::kKey_w] = 17;
-        s_DXKeyMapping[GameInput::kKey_e] = 18;
-        s_DXKeyMapping[GameInput::kKey_r] = 19;
-        s_DXKeyMapping[GameInput::kKey_t] = 20;
-        s_DXKeyMapping[GameInput::kKey_y] = 21;
-        s_DXKeyMapping[GameInput::kKey_u] = 22;
-        s_DXKeyMapping[GameInput::kKey_i] = 23;
-        s_DXKeyMapping[GameInput::kKey_o] = 24;
-        s_DXKeyMapping[GameInput::kKey_p] = 25;
-        s_DXKeyMapping[GameInput::kKey_lbracket] = 26;
-        s_DXKeyMapping[GameInput::kKey_rbracket] = 27;
-        s_DXKeyMapping[GameInput::kKey_return] = 28;
-        s_DXKeyMapping[GameInput::kKey_lcontrol] = 29;
-        s_DXKeyMapping[GameInput::kKey_a] = 30;
-        s_DXKeyMapping[GameInput::kKey_s] = 31;
-        s_DXKeyMapping[GameInput::kKey_d] = 32;
-        s_DXKeyMapping[GameInput::kKey_f] = 33;
-        s_DXKeyMapping[GameInput::kKey_g] = 34;
-        s_DXKeyMapping[GameInput::kKey_h] = 35;
-        s_DXKeyMapping[GameInput::kKey_j] = 36;
-        s_DXKeyMapping[GameInput::kKey_k] = 37;
-        s_DXKeyMapping[GameInput::kKey_l] = 38;
-        s_DXKeyMapping[GameInput::kKey_semicolon] = 39;
+        s_DXKeyMapping[GameInput::kKey_back] = Keyboard::Keys::Back;
+        s_DXKeyMapping[GameInput::kKey_tab] = Keyboard::Keys::Tab;
+        s_DXKeyMapping[GameInput::kKey_q] = Keyboard::Keys::Q;
+        s_DXKeyMapping[GameInput::kKey_w] = Keyboard::Keys::W;
+        s_DXKeyMapping[GameInput::kKey_e] = Keyboard::Keys::E;
+        s_DXKeyMapping[GameInput::kKey_r] = Keyboard::Keys::R;
+        s_DXKeyMapping[GameInput::kKey_t] = Keyboard::Keys::T;
+        s_DXKeyMapping[GameInput::kKey_y] = Keyboard::Keys::Y;
+        s_DXKeyMapping[GameInput::kKey_u] = Keyboard::Keys::U;
+        s_DXKeyMapping[GameInput::kKey_i] = Keyboard::Keys::I;
+        s_DXKeyMapping[GameInput::kKey_o] = Keyboard::Keys::O;
+        s_DXKeyMapping[GameInput::kKey_p] = Keyboard::Keys::P;
+        s_DXKeyMapping[GameInput::kKey_lbracket] = Keyboard::Keys::OemOpenBrackets;
+        s_DXKeyMapping[GameInput::kKey_rbracket] = Keyboard::Keys::OemCloseBrackets;
+        s_DXKeyMapping[GameInput::kKey_return] = Keyboard::Keys::Enter;
+        s_DXKeyMapping[GameInput::kKey_lcontrol] = Keyboard::Keys::LeftControl;
+        s_DXKeyMapping[GameInput::kKey_a] = Keyboard::Keys::A;
+        s_DXKeyMapping[GameInput::kKey_s] = Keyboard::Keys::S;
+        s_DXKeyMapping[GameInput::kKey_d] = Keyboard::Keys::D;
+        s_DXKeyMapping[GameInput::kKey_f] = Keyboard::Keys::F;
+        s_DXKeyMapping[GameInput::kKey_g] = Keyboard::Keys::G;
+        s_DXKeyMapping[GameInput::kKey_h] = Keyboard::Keys::H;
+        s_DXKeyMapping[GameInput::kKey_j] = Keyboard::Keys::J;
+        s_DXKeyMapping[GameInput::kKey_k] = Keyboard::Keys::K;
+        s_DXKeyMapping[GameInput::kKey_l] = Keyboard::Keys::L;
+        s_DXKeyMapping[GameInput::kKey_semicolon] = Keyboard::Keys::OemSemicolon;
         s_DXKeyMapping[GameInput::kKey_apostrophe] = 40;
         s_DXKeyMapping[GameInput::kKey_grave] = 41;
-        s_DXKeyMapping[GameInput::kKey_lshift] = 42;
-        s_DXKeyMapping[GameInput::kKey_backslash] = 43;
-        s_DXKeyMapping[GameInput::kKey_z] = 44;
-        s_DXKeyMapping[GameInput::kKey_x] = 45;
-        s_DXKeyMapping[GameInput::kKey_c] = 46;
-        s_DXKeyMapping[GameInput::kKey_v] = 47;
-        s_DXKeyMapping[GameInput::kKey_b] = 48;
-        s_DXKeyMapping[GameInput::kKey_n] = 49;
-        s_DXKeyMapping[GameInput::kKey_m] = 50;
-        s_DXKeyMapping[GameInput::kKey_comma] = 51;
-        s_DXKeyMapping[GameInput::kKey_period] = 52;
+        s_DXKeyMapping[GameInput::kKey_lshift] = Keyboard::Keys::LeftShift;
+        s_DXKeyMapping[GameInput::kKey_backslash] = Keyboard::Keys::OemBackslash;
+        s_DXKeyMapping[GameInput::kKey_z] = Keyboard::Keys::Z;
+        s_DXKeyMapping[GameInput::kKey_x] = Keyboard::Keys::X;
+        s_DXKeyMapping[GameInput::kKey_c] = Keyboard::Keys::C;
+        s_DXKeyMapping[GameInput::kKey_v] = Keyboard::Keys::V;
+        s_DXKeyMapping[GameInput::kKey_b] = Keyboard::Keys::B;
+        s_DXKeyMapping[GameInput::kKey_n] = Keyboard::Keys::N;
+        s_DXKeyMapping[GameInput::kKey_m] = Keyboard::Keys::M;
+        s_DXKeyMapping[GameInput::kKey_comma] = Keyboard::Keys::OemComma;
+        s_DXKeyMapping[GameInput::kKey_period] = Keyboard::Keys::OemPeriod;
         s_DXKeyMapping[GameInput::kKey_slash] = 53;
-        s_DXKeyMapping[GameInput::kKey_rshift] = 54;
-        s_DXKeyMapping[GameInput::kKey_multiply] = 55;
-        s_DXKeyMapping[GameInput::kKey_lalt] = 56;
-        s_DXKeyMapping[GameInput::kKey_space] = 57;
-        s_DXKeyMapping[GameInput::kKey_capital] = 58;
-        s_DXKeyMapping[GameInput::kKey_f1] = 59;
-        s_DXKeyMapping[GameInput::kKey_f2] = 60;
-        s_DXKeyMapping[GameInput::kKey_f3] = 61;
-        s_DXKeyMapping[GameInput::kKey_f4] = 62;
-        s_DXKeyMapping[GameInput::kKey_f5] = 63;
-        s_DXKeyMapping[GameInput::kKey_f6] = 64;
-        s_DXKeyMapping[GameInput::kKey_f7] = 65;
-        s_DXKeyMapping[GameInput::kKey_f8] = 66;
-        s_DXKeyMapping[GameInput::kKey_f9] = 67;
-        s_DXKeyMapping[GameInput::kKey_f10] = 68;
-        s_DXKeyMapping[GameInput::kKey_numlock] = 69;
-        s_DXKeyMapping[GameInput::kKey_scroll] = 70;
-        s_DXKeyMapping[GameInput::kKey_numpad7] = 71;
-        s_DXKeyMapping[GameInput::kKey_numpad8] = 72;
-        s_DXKeyMapping[GameInput::kKey_numpad9] = 73;
-        s_DXKeyMapping[GameInput::kKey_subtract] = 74;
-        s_DXKeyMapping[GameInput::kKey_numpad4] = 75;
-        s_DXKeyMapping[GameInput::kKey_numpad5] = 76;
-        s_DXKeyMapping[GameInput::kKey_numpad6] = 77;
-        s_DXKeyMapping[GameInput::kKey_add] = 78;
-        s_DXKeyMapping[GameInput::kKey_numpad1] = 79;
-        s_DXKeyMapping[GameInput::kKey_numpad2] = 80;
-        s_DXKeyMapping[GameInput::kKey_numpad3] = 81;
-        s_DXKeyMapping[GameInput::kKey_numpad0] = 82;
-        s_DXKeyMapping[GameInput::kKey_decimal] = 83;
-        s_DXKeyMapping[GameInput::kKey_f11] = 87;
-        s_DXKeyMapping[GameInput::kKey_f12] = 88;
-        s_DXKeyMapping[GameInput::kKey_numpadenter] = 156;
-        s_DXKeyMapping[GameInput::kKey_rcontrol] = 157;
-        s_DXKeyMapping[GameInput::kKey_divide] = 181;
+        s_DXKeyMapping[GameInput::kKey_rshift] = Keyboard::Keys::RightShift;
+        s_DXKeyMapping[GameInput::kKey_multiply] = Keyboard::Keys::Multiply;
+        s_DXKeyMapping[GameInput::kKey_lalt] = Keyboard::Keys::LeftAlt;
+        s_DXKeyMapping[GameInput::kKey_space] = Keyboard::Keys::Space;
+        s_DXKeyMapping[GameInput::kKey_capital] = Keyboard::Keys::CapsLock;
+        s_DXKeyMapping[GameInput::kKey_f1] = Keyboard::Keys::F1;
+        s_DXKeyMapping[GameInput::kKey_f2] = Keyboard::Keys::F2;
+        s_DXKeyMapping[GameInput::kKey_f3] = Keyboard::Keys::F3;
+        s_DXKeyMapping[GameInput::kKey_f4] = Keyboard::Keys::F4;
+        s_DXKeyMapping[GameInput::kKey_f5] = Keyboard::Keys::F5;
+        s_DXKeyMapping[GameInput::kKey_f6] = Keyboard::Keys::F6;
+        s_DXKeyMapping[GameInput::kKey_f7] = Keyboard::Keys::F7;
+        s_DXKeyMapping[GameInput::kKey_f8] = Keyboard::Keys::F8;
+        s_DXKeyMapping[GameInput::kKey_f9] = Keyboard::Keys::F9;
+        s_DXKeyMapping[GameInput::kKey_f10] = Keyboard::Keys::F10;
+        s_DXKeyMapping[GameInput::kKey_numlock] = Keyboard::Keys::NumLock;
+        s_DXKeyMapping[GameInput::kKey_scroll] = Keyboard::Keys::Scroll;
+        s_DXKeyMapping[GameInput::kKey_numpad7] = Keyboard::Keys::NumPad7;
+        s_DXKeyMapping[GameInput::kKey_numpad8] = Keyboard::Keys::NumPad8;
+        s_DXKeyMapping[GameInput::kKey_numpad9] = Keyboard::Keys::NumPad9;
+        s_DXKeyMapping[GameInput::kKey_subtract] = Keyboard::Keys::Subtract;
+        s_DXKeyMapping[GameInput::kKey_numpad4] = Keyboard::Keys::NumPad4;
+        s_DXKeyMapping[GameInput::kKey_numpad5] = Keyboard::Keys::NumPad5;
+        s_DXKeyMapping[GameInput::kKey_numpad6] = Keyboard::Keys::NumPad6;
+        s_DXKeyMapping[GameInput::kKey_add] = Keyboard::Keys::OemPlus;
+        s_DXKeyMapping[GameInput::kKey_numpad1] = Keyboard::Keys::NumPad1;
+        s_DXKeyMapping[GameInput::kKey_numpad2] = Keyboard::Keys::NumPad2;
+        s_DXKeyMapping[GameInput::kKey_numpad3] = Keyboard::Keys::NumPad3;
+        s_DXKeyMapping[GameInput::kKey_numpad0] = Keyboard::Keys::NumPad0;
+        s_DXKeyMapping[GameInput::kKey_decimal] = Keyboard::Keys::OemPeriod;
+        s_DXKeyMapping[GameInput::kKey_f11] = Keyboard::Keys::F11;
+        s_DXKeyMapping[GameInput::kKey_f12] = Keyboard::Keys::F12;
+        s_DXKeyMapping[GameInput::kKey_numpadenter] = Keyboard::Keys::Enter; // NumPad variant?
+        s_DXKeyMapping[GameInput::kKey_rcontrol] = Keyboard::Keys::RightControl;
+        s_DXKeyMapping[GameInput::kKey_divide] = Keyboard::Keys::Divide;
         s_DXKeyMapping[GameInput::kKey_sysrq] = 183;
-        s_DXKeyMapping[GameInput::kKey_ralt] = 184;
-        s_DXKeyMapping[GameInput::kKey_pause] = 197;
-        s_DXKeyMapping[GameInput::kKey_home] = 199;
-        s_DXKeyMapping[GameInput::kKey_up] = 200;
-        s_DXKeyMapping[GameInput::kKey_pgup] = 201;
-        s_DXKeyMapping[GameInput::kKey_left] = 203;
-        s_DXKeyMapping[GameInput::kKey_right] = 205;
-        s_DXKeyMapping[GameInput::kKey_end] = 207;
-        s_DXKeyMapping[GameInput::kKey_down] = 208;
-        s_DXKeyMapping[GameInput::kKey_pgdn] = 209;
-        s_DXKeyMapping[GameInput::kKey_insert] = 210;
-        s_DXKeyMapping[GameInput::kKey_delete] = 211;
-        s_DXKeyMapping[GameInput::kKey_lwin] = 219;
-        s_DXKeyMapping[GameInput::kKey_rwin] = 220;
-        s_DXKeyMapping[GameInput::kKey_apps] = 221;
+        s_DXKeyMapping[GameInput::kKey_ralt] = Keyboard::Keys::RightAlt;
+        s_DXKeyMapping[GameInput::kKey_pause] = Keyboard::Keys::Pause;
+        s_DXKeyMapping[GameInput::kKey_home] = Keyboard::Keys::Home;
+        s_DXKeyMapping[GameInput::kKey_up] = Keyboard::Keys::Up;
+        s_DXKeyMapping[GameInput::kKey_pgup] = Keyboard::Keys::PageUp;
+        s_DXKeyMapping[GameInput::kKey_left] = Keyboard::Keys::Left;
+        s_DXKeyMapping[GameInput::kKey_right] = Keyboard::Keys::Right;
+        s_DXKeyMapping[GameInput::kKey_end] = Keyboard::Keys::End;
+        s_DXKeyMapping[GameInput::kKey_down] = Keyboard::Keys::Down;
+        s_DXKeyMapping[GameInput::kKey_pgdn] = Keyboard::Keys::PageDown;
+        s_DXKeyMapping[GameInput::kKey_insert] = Keyboard::Keys::Insert;
+        s_DXKeyMapping[GameInput::kKey_delete] = Keyboard::Keys::Delete;
+        s_DXKeyMapping[GameInput::kKey_lwin] = Keyboard::Keys::LeftWindows;
+        s_DXKeyMapping[GameInput::kKey_rwin] = Keyboard::Keys::RightWindows;
+        s_DXKeyMapping[GameInput::kKey_apps] = Keyboard::Keys::Apps;
     }
 
     void KbmZeroInputs()
     {
-        memset(&s_MouseState, 0, sizeof(DIMOUSESTATE2));
-        memset(s_Keybuffer, 0, sizeof(s_Keybuffer));
+        for (uint32_t i = 0; i < kNumKeys; ++i)
+        {
+            s_Buttons[0][i] = false;
+        }
+
+        s_Buttons[0][kMouseLeft]    = false;
+        s_Buttons[0][kMouseMiddle]  = false;
+        s_Buttons[0][kMouseRight]   = false;
+        s_Buttons[0][kMouseButton1] = false;
+        s_Buttons[0][kMouseButton2] = false;
+        s_Analogs[kAnalogMouseX] = 0.0f;
+        s_Analogs[kAnalogMouseY] = 0.0f;
+        s_Analogs[kAnalogMouseScroll] = 0.0f;
     }
 
     void KbmInitialize()
     {
         KbmBuildKeyMapping();
 
-        if (FAILED(DirectInput8Create(GetModuleHandle(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&s_DI, nullptr)))
-            ASSERT(false, "DirectInput8 initialization failed.");
+        g_Keyboard = std::make_unique<DirectX::Keyboard>();
+        g_Mouse = std::make_unique<DirectX::Mouse>();
 
-        if (FAILED(s_DI->CreateDevice(GUID_SysKeyboard, &s_Keyboard, nullptr)))
-            ASSERT(false, "Keyboard CreateDevice failed.");
-        if (FAILED(s_Keyboard->SetDataFormat(&c_dfDIKeyboard)))
-            ASSERT(false, "Keyboard SetDataFormat failed.");
-        if (FAILED(s_Keyboard->SetCooperativeLevel(GameCore::g_hWnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE)))
-            ASSERT(false, "Keyboard SetCooperativeLevel failed.");
-
-        DIPROPDWORD dipdw;
-        dipdw.diph.dwSize = sizeof(DIPROPDWORD);
-        dipdw.diph.dwHeaderSize = sizeof(DIPROPHEADER);
-        dipdw.diph.dwObj = 0;
-        dipdw.diph.dwHow = DIPH_DEVICE;
-        dipdw.dwData = 10;
-        if (FAILED(s_Keyboard->SetProperty(DIPROP_BUFFERSIZE, &dipdw.diph)))
-            ASSERT(false, "Keyboard set buffer size failed.");
-
-        if (FAILED(s_DI->CreateDevice(GUID_SysMouse, &s_Mouse, nullptr)))
-            ASSERT(false, "Mouse CreateDevice failed.");
-        if (FAILED(s_Mouse->SetDataFormat(&c_dfDIMouse2)))
-            ASSERT(false, "Mouse SetDataFormat failed.");
-        if (FAILED(s_Mouse->SetCooperativeLevel(GameCore::g_hWnd, DISCL_FOREGROUND | DISCL_EXCLUSIVE)))
-            ASSERT(false, "Mouse SetCooperativeLevel failed.");
+        g_Mouse->SetWindow(GameCore::g_hWnd);
+        g_Mouse->SetMode(DirectX::Mouse::Mode::MODE_RELATIVE);
+        ASSERT(g_Mouse->IsConnected());
 
         KbmZeroInputs();
-    }
-
-    void KbmShutdown()
-    {
-        if (s_Keyboard)
-        {
-            s_Keyboard->Unacquire();
-            s_Keyboard->Release();
-            s_Keyboard = nullptr;
-        }
-        if (s_Mouse)
-        {
-            s_Mouse->Unacquire();
-            s_Mouse->Release();
-            s_Mouse = nullptr;
-        }
-        if (s_DI)
-        {
-            s_DI->Release();
-            s_DI = nullptr;
-        }
     }
 
     void KbmUpdate()
@@ -254,17 +227,38 @@ namespace
         HWND foreground = GetForegroundWindow();
         bool visible = IsWindowVisible(foreground) != 0;
 
-        if (foreground != GameCore::g_hWnd // wouldn't be able to acquire
-            || !visible)
+        if (foreground != GameCore::g_hWnd || !visible)
         {
             KbmZeroInputs();
         }
         else
         {
-            s_Mouse->Acquire();
-            s_Mouse->GetDeviceState(sizeof(DIMOUSESTATE2), &s_MouseState);
-            s_Keyboard->Acquire();
-            s_Keyboard->GetDeviceState(sizeof(s_Keybuffer), s_Keybuffer);
+            auto kbState = g_Keyboard->GetState();
+
+            for (uint32_t i = 0; i < kNumKeys; ++i)
+            {
+                s_Buttons[0][i] = kbState.IsKeyDown((Keyboard::Keys)s_DXKeyMapping[i]);
+            }
+
+            auto mState = g_Mouse->GetState();
+
+            s_Buttons[0][kMouseLeft]    = mState.leftButton;
+            s_Buttons[0][kMouseMiddle]  = mState.middleButton;
+            s_Buttons[0][kMouseRight]   = mState.rightButton;
+            s_Buttons[0][kMouseButton1] = mState.xButton1;
+            s_Buttons[0][kMouseButton2] = mState.xButton2;
+
+            s_Analogs[kAnalogMouseX] = mState.x / 512.0f;
+            s_Analogs[kAnalogMouseY] = -mState.y / 512.0f;
+
+            if (mState.scrollWheelValue > 0)
+                s_Analogs[kAnalogMouseScroll] = 1.0f;
+            else if (mState.scrollWheelValue < 0)
+                Utility::Printf("Scroll down\n");
+            else
+                s_Analogs[kAnalogMouseScroll] = 0.0f;
+
+            Mouse::Get().ResetScrollWheelValue();
         }
     }
 
@@ -277,6 +271,8 @@ void GameInput::Initialize()
     ZeroMemory(s_Buttons, sizeof(s_Buttons) );
     ZeroMemory(s_Analogs, sizeof(s_Analogs) );
 
+    g_GamePad = std::make_unique<DirectX::GamePad>();
+
 #ifdef USE_KEYBOARD_MOUSE
     KbmInitialize();
 #endif
@@ -284,8 +280,11 @@ void GameInput::Initialize()
 
 void GameInput::Shutdown()
 {
+    g_GamePad.reset();
+
 #ifdef USE_KEYBOARD_MOUSE
-    KbmShutdown();
+    g_Keyboard.reset();
+    g_Mouse.reset();
 #endif
 }
 
@@ -295,95 +294,35 @@ void GameInput::Update( float frameDelta )
     memset(s_Buttons[0], 0, sizeof(s_Buttons[0]));
     memset(s_Analogs, 0, sizeof(s_Analogs));
 
-#ifdef _GAMING_DESKTOP
+    auto state = g_GamePad->GetState(0);
 
-#define SET_BUTTON_VALUE(InputEnum, GameInputMask) \
-        s_Buttons[0][InputEnum] = !!(newInputState.Gamepad.wButtons & GameInputMask);
-
-    XINPUT_STATE newInputState;
-    if (ERROR_SUCCESS == XInputGetState(0, &newInputState))
+    if (state.IsConnected())
     {
-        SET_BUTTON_VALUE(kDPadUp, XINPUT_GAMEPAD_DPAD_UP);
-        SET_BUTTON_VALUE(kDPadDown, XINPUT_GAMEPAD_DPAD_DOWN);
-        SET_BUTTON_VALUE(kDPadLeft, XINPUT_GAMEPAD_DPAD_LEFT);
-        SET_BUTTON_VALUE(kDPadRight, XINPUT_GAMEPAD_DPAD_RIGHT);
-        SET_BUTTON_VALUE(kStartButton, XINPUT_GAMEPAD_START);
-        SET_BUTTON_VALUE(kBackButton, XINPUT_GAMEPAD_BACK);
-        SET_BUTTON_VALUE(kLThumbClick, XINPUT_GAMEPAD_LEFT_THUMB);
-        SET_BUTTON_VALUE(kRThumbClick, XINPUT_GAMEPAD_RIGHT_THUMB);
-        SET_BUTTON_VALUE(kLShoulder, XINPUT_GAMEPAD_LEFT_SHOULDER);
-        SET_BUTTON_VALUE(kRShoulder, XINPUT_GAMEPAD_RIGHT_SHOULDER);
-        SET_BUTTON_VALUE(kAButton, XINPUT_GAMEPAD_A);
-        SET_BUTTON_VALUE(kBButton, XINPUT_GAMEPAD_B);
-        SET_BUTTON_VALUE(kXButton, XINPUT_GAMEPAD_X);
-        SET_BUTTON_VALUE(kYButton, XINPUT_GAMEPAD_Y);
+        s_Buttons[0][kDPadUp] = state.dpad.up;
+        s_Buttons[0][kDPadDown] = state.dpad.down;
+        s_Buttons[0][kDPadLeft] = state.dpad.left;
+        s_Buttons[0][kDPadRight] = state.dpad.right;
+        s_Buttons[0][kStartButton] = state.buttons.start;
+        s_Buttons[0][kBackButton] = state.buttons.back;
+        s_Buttons[0][kLThumbClick] = state.buttons.leftStick;
+        s_Buttons[0][kRThumbClick] = state.buttons.rightStick;
+        s_Buttons[0][kLShoulder] = state.buttons.leftShoulder;
+        s_Buttons[0][kRShoulder] = state.buttons.rightShoulder;
+        s_Buttons[0][kAButton] = state.buttons.a;
+        s_Buttons[0][kBButton] = state.buttons.b;
+        s_Buttons[0][kXButton] = state.buttons.x;
+        s_Buttons[0][kYButton] = state.buttons.y;
 
-        s_Analogs[kAnalogLeftTrigger]   = newInputState.Gamepad.bLeftTrigger / 255.0f;
-        s_Analogs[kAnalogRightTrigger]  = newInputState.Gamepad.bRightTrigger / 255.0f;
-        s_Analogs[kAnalogLeftStickX]    = FilterAnalogInput(newInputState.Gamepad.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE );
-        s_Analogs[kAnalogLeftStickY]    = FilterAnalogInput(newInputState.Gamepad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE );
-        s_Analogs[kAnalogRightStickX]   = FilterAnalogInput(newInputState.Gamepad.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE );
-        s_Analogs[kAnalogRightStickY]   = FilterAnalogInput(newInputState.Gamepad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE );
+        s_Analogs[kAnalogLeftTrigger]   = state.triggers.left;
+        s_Analogs[kAnalogRightTrigger]  = state.triggers.right;
+        s_Analogs[kAnalogLeftStickX]    = state.thumbSticks.leftX;
+        s_Analogs[kAnalogLeftStickY]    = state.thumbSticks.leftY;
+        s_Analogs[kAnalogRightStickX]   = state.thumbSticks.rightX;
+        s_Analogs[kAnalogRightStickY]   = state.thumbSticks.rightY;
     }
-#else
-    IGameInputReading* pGIR = nullptr;
-    if (s_pGameInput != nullptr)
-        s_pGameInput->GetCurrentReading(GameInputKindGamepad, nullptr, &pGIR);
-    bool IsGamepadPresent = (pGIR != nullptr);
-
-    if (IsGamepadPresent)
-    {
-        GameInputGamepadState newInputState;
-        pGIR->GetGamepadState(&newInputState);
-        pGIR->Release();
-
-#define SET_BUTTON_VALUE(InputEnum, GameInputMask) \
-        s_Buttons[0][InputEnum] = !!(newInputState.buttons & GameInputMask);
-
-        SET_BUTTON_VALUE(kDPadUp, GameInputGamepadDPadUp);
-        SET_BUTTON_VALUE(kDPadDown, GameInputGamepadDPadDown);
-        SET_BUTTON_VALUE(kDPadLeft, GameInputGamepadDPadLeft);
-        SET_BUTTON_VALUE(kDPadRight, GameInputGamepadDPadRight);
-        SET_BUTTON_VALUE(kStartButton, GameInputGamepadMenu);
-        SET_BUTTON_VALUE(kBackButton, GameInputGamepadView);
-        SET_BUTTON_VALUE(kLThumbClick, GameInputGamepadLeftThumbstick);
-        SET_BUTTON_VALUE(kRThumbClick, GameInputGamepadRightThumbstick);
-        SET_BUTTON_VALUE(kLShoulder, GameInputGamepadLeftShoulder);
-        SET_BUTTON_VALUE(kRShoulder, GameInputGamepadRightShoulder);
-        SET_BUTTON_VALUE(kAButton, GameInputGamepadA);
-        SET_BUTTON_VALUE(kBButton, GameInputGamepadB);
-        SET_BUTTON_VALUE(kXButton, GameInputGamepadX);
-        SET_BUTTON_VALUE(kYButton, GameInputGamepadY);
-
-        s_Analogs[kAnalogLeftTrigger]   = newInputState.leftTrigger;
-        s_Analogs[kAnalogRightTrigger]  = newInputState.rightTrigger;
-        s_Analogs[kAnalogLeftStickX]    = FilterAnalogInput(newInputState.leftThumbstickX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
-        s_Analogs[kAnalogLeftStickY]    = FilterAnalogInput(newInputState.leftThumbstickY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
-        s_Analogs[kAnalogRightStickX]   = FilterAnalogInput(newInputState.rightThumbstickX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
-        s_Analogs[kAnalogRightStickY]   = FilterAnalogInput(newInputState.rightThumbstickY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
-    }
-#endif
 
 #ifdef USE_KEYBOARD_MOUSE
     KbmUpdate();
-
-    for (uint32_t i = 0; i < kNumKeys; ++i)
-    {
-        s_Buttons[0][i] = (s_Keybuffer[s_DXKeyMapping[i]] & 0x80) != 0;
-    }
-
-    for (uint32_t i = 0; i < 8; ++i)
-    {
-        if (s_MouseState.rgbButtons[i] > 0) s_Buttons[0][kMouse0 + i] = true;
-    }
-
-    s_Analogs[kAnalogMouseX] = (float)s_MouseState.lX * .0018f;
-    s_Analogs[kAnalogMouseY] = (float)s_MouseState.lY * -.0018f;
-
-    if (s_MouseState.lZ > 0)
-        s_Analogs[kAnalogMouseScroll] = 1.0f;
-    else if (s_MouseState.lZ < 0)
-        s_Analogs[kAnalogMouseScroll] = -1.0f;
 #endif
 
     // Update time duration for buttons pressed
